@@ -262,7 +262,9 @@ class SDT:
     def __init__(self):
         self.syntax_table = generate_syntax_table()
         self.state_stack = [0]
+        self.arg_stack = []
         self.accept = False
+        self.translation = ''
 
     def get_action(self, state, literal):
         return self.syntax_table[state][all_symbols.index(literal)]
@@ -273,8 +275,12 @@ class SDT:
         if action[0] == 's':
             current_state = int(action[1:])
             self.state_stack.append(current_state)
+            self.push_arg(token)
         elif action[0] == '$':
+            self.translation = startsup(self.arg_stack[-1])
             self.accept = True   # success
+            print('SUCCESS')
+            print(self.translation)
         # reduce action reduct a production and push
         elif action[0] == 'r':
             # get the production in grammar
@@ -287,6 +293,14 @@ class SDT:
             # push the state of head GOTO(I,X)
             state = self.get_action(self.state_stack[-1], head)
             self.state_stack.append(int(state))
+
+            # translations
+            args = []
+            for _ in body:
+                arg = self.arg_stack.pop()
+                args.insert(0, arg)
+            translation = globals().get(head).__call__(*args)
+            self.arg_stack.append(translation)
 
             # reduce actions does not consume a token,
             # only when shifting, a token was consume and passed
@@ -305,6 +319,50 @@ class SDT:
                 self.ahead(Token("$", "$"))
                 break
 
+    def push_arg(self, token):
+        if token.typ == 'C':
+            token.code = lambda f_cond: 'Ccode Cfalse = {}'.format(f_cond)
+        elif token.typ == 'S1':
+            token.code = lambda : 'S1code'
+        elif token.typ == 'S2':
+            token.code = lambda : 'S2code'
+        self.arg_stack.append(token)
+
+
+all_labels = []
+
+
+def get_label():
+    n = 'L' + str(len(all_labels))
+    all_labels.append(n)
+    return n
+
+
+def stmt(IF, LPAR, c, RPAR, s1, ELSE, s2):
+    def call(next_label):
+        L1 = get_label()
+        C_code = c.code(f_cond=L1)
+        S1_code = s1.code()
+        S2_code = s2.code()
+        inter_code = """
+        {} 
+        {}
+        goto {}
+        label {}
+        {}""".format(C_code, S1_code, next_label, L1, S2_code)
+        return inter_code
+    return call
+
+
+def start(stmt):
+    def call():
+        L = get_label()
+        return stmt(L)
+    return call
+
+
+def startsup(f):
+    return f()
 
 if __name__ == "__main__":
     g = closure_groups()
